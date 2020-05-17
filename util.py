@@ -31,6 +31,17 @@ def get_train_val_test_split(train_path='data/train.txt',
 
 
 def split_imgs(img_path, training_set, val_set, test_set, save_path='data', nr_of_feature_vectors=2048):
+    """
+    create and export dataframe for image vectors according to training, validation and test set
+
+    :param img_path:
+    :param training_set:
+    :param val_set:
+    :param test_set:
+    :param save_path:
+    :param nr_of_feature_vectors:
+    :return:
+    """
     column_names = ['img_name'] + ['feature_%s' % i for i in range(nr_of_feature_vectors)]
     df = pd.read_csv(img_path, sep=' ', header=None, names=column_names)
     df['img_name'] = df['img_name'].apply(lambda x: x.replace(".jpg", "")).astype(int)

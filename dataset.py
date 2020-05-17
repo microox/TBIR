@@ -2,6 +2,7 @@ import torch
 from torch.utils.data import Dataset
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 import pandas as pd
+import os
 
 
 class FLICKR30K(Dataset):
@@ -11,7 +12,7 @@ class FLICKR30K(Dataset):
     see: https://pytorch.org/tutorials/beginner/data_loading_tutorial.html
     """
 
-    def __init__(self, mode):
+    def __init__(self, mode, datapath='data'):
         super().__init__()
         assert mode in ['train', 'val', 'test']
         self.mode = mode
@@ -22,11 +23,11 @@ class FLICKR30K(Dataset):
 
         # load image data
         print("loading %s..." % csv_file_images)
-        self.data_img = pd.read_csv(csv_file_images)
+        self.data_img = pd.read_csv(os.path.join(datapath, csv_file_images))
 
         # load captions and create BOW
         print("loading %s..." % csv_file_captions)
-        df_all_captions = pd.read_csv(csv_file_captions)  # TODO which input for vectorizer?
+        df_all_captions = pd.read_csv(os.path.join(datapath, csv_file_captions))  # TODO which input for vectorizer?
         self.data_bow = self._create_bow(df_all_captions)  # TODO: create BOW outside of data_set
 
     def __getitem__(self, index):
