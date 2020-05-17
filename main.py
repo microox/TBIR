@@ -83,8 +83,9 @@ def main():
                                                                    test_path=paths[2],
                                                                    verbose=True)
         caption_path = 'data/results_20130124.token'
-        dict = img_to_caption(caption_path=caption_path, training_list=train_idcs, verbose=True)
-        print(dict)
+        img_to_caption(caption_path=caption_path, training_set=train_idcs, val_set=val_idcs, test_set=test_idcs,
+                       verbose=True)
+
 
     # obtain data loaders for train, validation and test sets
     train_set = FLICKR30K(mode='train')

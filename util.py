@@ -1,5 +1,6 @@
 import numpy as np
-
+import pandas as pd
+import os
 
 def get_train_val_test_split(train_path='data/train.txt',
                              val_path='data/val.txt',
@@ -28,7 +29,8 @@ def get_train_val_test_split(train_path='data/train.txt',
     return train, val, test
 
 
-def img_to_caption(caption_path, training_list, verbose=True):
+def img_to_caption(caption_path, training_set, val_set, test_set,
+                   save_as_csv=True, save_path='data', verbose=True):
     """
     create dictionary with image title : list of captions
 
@@ -65,12 +67,35 @@ def img_to_caption(caption_path, training_list, verbose=True):
     composite_list = np.array([img_to_caption_as_list[x:x + 5] for x in range(0, len(img_to_caption_as_list), 5)])
 
     # create dictionary with { img: [list of captions] }
-    dict = {}
-    keys = np.unique(composite_list[:, :, 0])
+    training = {}
+    val = {}
+    test = {}
+    keys = np.unique(composite_list[:, :, 0]).astype('int')
     for i, key in enumerate(keys):
-        dict[int(key)] = composite_list[:, :, 2][i]
+        if key in training_set:
+            training[int(key)] = composite_list[:, :, 2][i]
+        elif key in val_set:
+            val[int(key)] = composite_list[:, :, 2][i]
+        elif key in test_set:
+            test[int(key)] = composite_list[:, :, 2][i]
+        else:
+            raise Exception("%s contains an image that does neither belong to train-, val- or test-set" % caption_path)
 
-    return dict
+    # determine dataset
+    if verbose:
+        print("saving captions in csv-format...")
+
+
+    df_training = pd.DataFrame(training).T
+    df_val = pd.DataFrame(val).T
+    df_test = pd.DataFrame(test).T
+
+    if save_as_csv:
+        df_training.to_csv(os.path.join(save_path, 'train_captions.csv'))
+        df_val.to_csv(os.path.join(save_path, 'val_captions.csv'))
+        df_test.to_csv(os.path.join(save_path, 'test_captions.csv'))
+
+    return df_training, df_val, df_test
 
 
 def img_to_caption_old(caption_path, training_list, verbose=True):
