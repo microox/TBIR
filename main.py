@@ -56,11 +56,14 @@ def main():
         print(torch.cuda.current_device())
         torch.cuda.manual_seed(args.seed)
 
+    print("starting with following args:\n%s" % vars(args))  # TODO: implement logger if time left
+
     # obtain data loaders for train, validation and test sets
     train_set = FLICKR30K(mode='train')
     train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True)
     test_loader = DataLoader(FLICKR30K(mode='test'), batch_size=args.batch_size, shuffle=False)
     val_loader = DataLoader(FLICKR30K(mode='val'), batch_size=args.batch_size, shuffle=False)
+    print("created train_loader, test_loader and val_loader!")
 
     # create a model for cross-modal retrieval
     img_dim, txt_dim = train_set.get_dimensions()
@@ -119,6 +122,7 @@ def main():
     model.load_state_dict(checkpoint['state_dict'])
     test(test_loader, model)
 
+
 def train(train_loader, model, optimizer, epoch):
     losses = AverageMeter()
     maps = AverageMeter()
@@ -158,6 +162,7 @@ def train(train_loader, model, optimizer, epoch):
                 losses.val, losses.avg,
                        100. * maps.val, 100. * maps.avg))
 
+
 def test(test_loader, model):
     # switch to evaluation mode
     model.eval()
@@ -173,6 +178,7 @@ def test(test_loader, model):
 
     return map
 
+
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
     """saves checkpoint to disk"""
     directory = "runs/%s/" % (args.name)
@@ -182,6 +188,7 @@ def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
     torch.save(state, filename)
     if is_best:
             shutil.copyfile(filename, 'runs/%s/' % (args.name) + 'model_best.pth.tar')
+
 
 class AverageMeter(object):
     """computes and stores the average and current value"""
@@ -201,11 +208,13 @@ class AverageMeter(object):
         self.count += n
         self.avg = self.sum / self.count
 
+
 def adjust_learning_rate(optimizer, epoch):
     """sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
     lr = args.lr * ((1 - 0.015) ** epoch)
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
+
 
 if __name__ == '__main__':
     main()
