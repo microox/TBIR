@@ -10,6 +10,8 @@ from losses import *
 from eval import *
 from dataset import *
 
+from util import get_train_val_test_split, img_to_caption
+
 parser = argparse.ArgumentParser(description='Cross-modal Retrieval with Hashing')
 parser.add_argument('--name', default='BasicModel', type=str,
                     help='name of experiment')
@@ -44,6 +46,13 @@ parser.add_argument('--gamma', type=float, default=1.0, metavar='M',
 parser.add_argument('--eta', type=float, default=1.0, metavar='M',
                     help='factor in the loss function')
 
+# own arguments
+parser.add_argument('--dataset_split_location', type=str, metavar='P', default='data',
+                    help='specifies where train.txt, test.txt and val.txt are located\n' +
+                         '(txt-files specify train-val-test-split and can be obtained from ' +
+                         'https://github.com/BryanPlummer/flickr30k_entities )')
+
+
 def main():
     # enable GPU learning
     global args
@@ -57,6 +66,25 @@ def main():
         torch.cuda.manual_seed(args.seed)
 
     print("starting with following args:\n%s" % vars(args))  # TODO: implement logger if time left
+
+    # check if csv-files for train-, val- and test-set exist,
+    # otherwise, generate them according to https://github.com/BryanPlummer/flickr30k_entities
+    if True:
+        print("going to generate train-val-test split according to https://github.com/BryanPlummer/flickr30k_entities")
+        paths = []
+        for txt_file in ['train.txt', 'val.txt', 'test.txt']:
+            paths.append(os.path.join(args.dataset_split_location, txt_file))
+            assert(os.path.exists(paths[-1]),
+                   "If you do not provide the location of the csv-files that include train, val and test data"
+                   "you will have to specify the correct location for train.txt, val.txt and test.txt, "
+                   "which were obtained from https://github.com/BryanPlummer/flickr30k_entities")
+        train_idcs, val_idcs, test_idcs = get_train_val_test_split(train_path=paths[0],
+                                                                   val_path=paths[1],
+                                                                   test_path=paths[2],
+                                                                   verbose=True)
+        caption_path = 'data/results_20130124.token'
+        dict = img_to_caption(caption_path=caption_path, training_list=train_idcs, verbose=True)
+        print(dict)
 
     # obtain data loaders for train, validation and test sets
     train_set = FLICKR30K(mode='train')
