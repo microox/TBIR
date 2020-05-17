@@ -10,7 +10,7 @@ from losses import *
 from eval import *
 from dataset import *
 
-from util import get_train_val_test_split, img_to_caption
+from util import get_train_val_test_split, split_captions, split_imgs
 
 parser = argparse.ArgumentParser(description='Cross-modal Retrieval with Hashing')
 parser.add_argument('--name', default='BasicModel', type=str,
@@ -51,6 +51,12 @@ parser.add_argument('--dataset_split_location', type=str, metavar='P', default='
                     help='specifies where train.txt, test.txt and val.txt are located\n' +
                          '(txt-files specify train-val-test-split and can be obtained from ' +
                          'https://github.com/BryanPlummer/flickr30k_entities )')
+parser.add_argument('--img_feature_path', type=str, metavar='P', default='data/image_features.csv',
+                    help='specifies, where csv file with image feature (default: data/image_features.csv) ')
+parser.add_argument('--caption_path', type=str, metavar='P', default='data/results_20130124.token',
+                    help='specifies exact filepath where captions are stored (i.e. results_20130124.token)\n' +
+                         'only used, if caption csv-files (train_captions.csv, val_captions.csv, test_captions.csv)' +
+                         'do not exist yet')
 
 
 def main():
@@ -82,10 +88,9 @@ def main():
                                                                    val_path=paths[1],
                                                                    test_path=paths[2],
                                                                    verbose=True)
-        caption_path = 'data/results_20130124.token'
-        img_to_caption(caption_path=caption_path, training_set=train_idcs, val_set=val_idcs, test_set=test_idcs,
+        split_imgs(img_path=args.img_feature_path, training_set=train_idcs, val_set=val_idcs, test_set=test_idcs)
+        split_captions(caption_path=args.caption_path, training_set=train_idcs, val_set=val_idcs, test_set=test_idcs,
                        verbose=True)
-
 
     # obtain data loaders for train, validation and test sets
     train_set = FLICKR30K(mode='train')
