@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 
+
 class BasicModel(nn.Module):
     def __init__(self, img_dim, txt_dim, hidden_dim, c):
         super().__init__()

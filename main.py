@@ -47,6 +47,10 @@ parser.add_argument('--eta', type=float, default=1.0, metavar='M',
                     help='factor in the loss function')
 
 # own arguments
+parser.add_argument('--task', type=int, choices=[1,2], default=1,
+                    help='determines which task should be performed (choices: 1,2, default: 1)')
+parser.add_argument('--split_dataset', dest='split_dataset', action='store_true', default=False,
+                    help='set this flag if the dataset was not split in train- val- and testset')
 parser.add_argument('--dataset_split_location', type=str, metavar='P', default='data',
                     help='specifies where train.txt, test.txt and val.txt are located\n' +
                          '(txt-files specify train-val-test-split and can be obtained from ' +
@@ -75,15 +79,11 @@ def main():
 
     # check if csv-files for train-, val- and test-set exist,
     # otherwise, generate them according to https://github.com/BryanPlummer/flickr30k_entities
-    if True:
+    if args.split_dataset:
         print("going to generate train-val-test split according to https://github.com/BryanPlummer/flickr30k_entities")
         paths = []
         for txt_file in ['train.txt', 'val.txt', 'test.txt']:
             paths.append(os.path.join(args.dataset_split_location, txt_file))
-            assert(os.path.exists(paths[-1]),
-                   "If you do not provide the location of the csv-files that include train, val and test data"
-                   "you will have to specify the correct location for train.txt, val.txt and test.txt, "
-                   "which were obtained from https://github.com/BryanPlummer/flickr30k_entities")
         train_idcs, val_idcs, test_idcs = get_train_val_test_split(train_path=paths[0],
                                                                    val_path=paths[1],
                                                                    test_path=paths[2],

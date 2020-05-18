@@ -1,5 +1,6 @@
 import torch
 
+
 def biranking_loss(a, b, margin, eps=1e-8):
     # compute cosine similarity matrix of all pairs in a and b
     a_n, b_n = a.norm(dim=-1, keepdim=True), b.norm(dim=-1, keepdim=True)
@@ -25,6 +26,7 @@ def biranking_loss(a, b, margin, eps=1e-8):
 
     num_sample = loss.size(0)
     return torch.sum(loss) / num_sample
+
 
 def cross_modal_hashing_loss(S, F, G, B, gamma, eta):
     # enforce cross-modal similarity
