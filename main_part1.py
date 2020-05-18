@@ -12,7 +12,7 @@ from dataset import *
 
 from util import get_train_val_test_split, split_captions, split_imgs
 
-parser = argparse.ArgumentParser(description='Cross-modal Retrieval with Hashing')
+parser = argparse.ArgumentParser(description='Cross-modal Retrieval (Part 1)')
 parser.add_argument('--name', default='BasicModel', type=str,
                     help='name of experiment')
 parser.add_argument('--gpu', type=int, default=0, metavar='N',
@@ -29,7 +29,7 @@ parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
 parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='enables CUDA training')
-parser.add_argument('--log-interval', type=int, default=250, metavar='N',
+parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                     help='how many batches to wait before logging training status')
 parser.add_argument('--resume', default='', type=str,
                     help='path to latest checkpoint (default: none)')
@@ -38,7 +38,7 @@ parser.add_argument('--test', dest='test', action='store_true', default=False,
 parser.add_argument('--dim_hidden', type=int, default=512, metavar='N',
                     help='how many hidden dimensions')
 parser.add_argument('--c', type=int, default=32, metavar='N',
-                    help='length of the binary code')
+                    help='number of dimension for shared feature space')
 parser.add_argument('--margin', type=float, default=0.2, metavar='M',
                     help='margin in the loss function')
 parser.add_argument('--gamma', type=float, default=1.0, metavar='M',
@@ -104,7 +104,7 @@ def main():
 
     # create a model for cross-modal retrieval
     img_dim, txt_dim = train_set.get_dimensions()
-    model = BasicModel(img_dim, txt_dim, args.dim_hidden, args.c)
+    model = ModelPart1(img_dim, txt_dim, args.dim_hidden, args.c)
 
     if args.cuda:
         model.cuda()
@@ -172,11 +172,11 @@ def train(train_loader, model, optimizer, epoch):
             y = y.cuda()
 
         # pass data samples to model
-        F, G, B = model(x, y)  # TODO: change dtype earlier ?
+        F, G = model(x, y)  # TODO: change dtype earlier ?
 
         # TODO: Use F, G and B to compute the MAP@10 and loss
         map = None
-        loss = None
+        loss = biranking_loss(F, G, args.margin, eps=1e-8)
 
         # record MAP@10 and loss
         num_pairs = len(x)

@@ -3,6 +3,7 @@ from torch.utils.data import Dataset
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 import pandas as pd
 import os
+import numpy as np
 
 
 class FLICKR30K(Dataset):
@@ -12,9 +13,12 @@ class FLICKR30K(Dataset):
     see: https://pytorch.org/tutorials/beginner/data_loading_tutorial.html
     """
 
-    def __init__(self, mode, datapath='data'):
+    def __init__(self, mode, datapath='data', vectorizer=None):
         super().__init__()
         assert mode in ['train', 'val', 'test']
+        if mode in ['val', 'test']:
+            assert vectorizer is not None, \
+                "you need to create or load a BOW model and pass it to the dataset when in mode %s" % mode
         self.mode = mode
 
         # determine csv-file names according to mode, e.g. train_img_features.csv
@@ -25,27 +29,43 @@ class FLICKR30K(Dataset):
         print("loading %s..." % csv_file_images)
         self.data_img = pd.read_csv(os.path.join(datapath, csv_file_images))
 
-        # create BOW from all captions in training set / TODO: also include val / test set to corpus
+        # create BOW from all captions in training set
         print("loading %s..." % csv_file_captions)
-        df_all_captions = pd.read_csv(os.path.join(datapath, csv_file_captions))  # TODO which input for vectorizer?
-        corpus = [item for sublist in df_all_captions.iloc[:, 2:].values.tolist() for item in sublist]
-        self.data_bow = self._create_bow(corpus)  # TODO: create BOW outside of data_set
+        data_captions = pd.read_csv(os.path.join(datapath, csv_file_captions))  # TODO self.df_all_captions for debugging ?
+        corpus = [item for sublist in data_captions.iloc[:, 1:].values.tolist() for item in sublist]
+        if mode in ['train']:
+            self.data_bow = self._create_bow(corpus)  # TODO: create BOW outside of data_set
+        else:
+            self.data_bow = self._transform_bow(vectorizer, corpus)
 
     def __getitem__(self, index):
-        # TODO how to represent captions? (list?)
-        sample = {'image_features': image_features, 'capitons': captions}
-        return sample
+        # TODO 1 image has 5 captions !
+        image_features = np.array(self.data_img.iloc[int(index / 5), 1:])
+        captions = self.data_bow.getrow(index).toarray().ravel()
+        # sample = {'image_features': image_features, 'captions': captions}
+        # TODO print vocabulary / image for debugging purposes (and for report)
+        # TODO: convert to tensor for pycharm input (?) --> check documentation on __getitem__
+        return image_features, captions
 
     def __len__(self):
-        # TODO: Overwrite the __len__ method of Dataset to return the size of the dataset
-        length = self.data_img.shape[0]
+        length = self.data_img.shape[0] * 5
         return length
 
     def get_dimensions(self):
-        # TODO: Implement this method to return the dimensions of the image and text features
-        img_dim = self.data_img.shape
-        cpt_dim = self.data_bow.shape
+        # TODO if mode = demo change cpt_dim
+        img_dim = self.data_img.shape[1] - 1
+        cpt_dim = self.data_bow.shape[1]  # TODO
         return img_dim, cpt_dim
+
+    def _transform_bow(self, vectorizer, corpus):
+        """
+        create a Bag-of-Words model given a corpus of captions
+        :param corpus: all captions belonging to training set
+        :return:
+        """
+        print("transforming captions from %s set to bow model..." % self.mode)
+        assert self.mode in ['val', 'test'] and vectorizer is not None
+        return vectorizer.transform(corpus)
 
     def _create_bow(self, corpus):
         """
@@ -53,7 +73,8 @@ class FLICKR30K(Dataset):
         :param corpus: all captions belonging to training set
         :return:
         """
-        # TODO: make function usable for test and validation set
-        vectorizer = TfidfVectorizer(lowercase=True, ngram_range=(1, 1), max_features=1024,
-                                     min_df=0, max_df=0.01, smooth_idf=True)
-        return vectorizer.fit_transform(corpus)
+        print("fitting vectorizer on captions from training set and transforming captions to bow model...")
+        assert self.mode in ['train']
+        self.vectorizer = TfidfVectorizer(lowercase=True, ngram_range=(1, 1), max_features=1024,
+                                          min_df=0, max_df=0.1, smooth_idf=True)
+        return self.vectorizer.fit_transform(corpus)
