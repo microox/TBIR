@@ -27,9 +27,9 @@ parser.add_argument('--lr', type=float, default=5e-5, metavar='LR',
                     help='learning rate (default: 5e-5)')
 parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
-parser.add_argument('--no-cuda', action='store_true', default=False,
+parser.add_argument('--no-cuda', action='store_true', default=True,
                     help='enables CUDA training')
-parser.add_argument('--log-interval', type=int, default=10, metavar='N',
+parser.add_argument('--log-interval', type=int, default=50, metavar='N',
                     help='how many batches to wait before logging training status')
 parser.add_argument('--resume', default='', type=str,
                     help='path to latest checkpoint (default: none)')
@@ -37,8 +37,9 @@ parser.add_argument('--test', dest='test', action='store_true', default=False,
                     help='To only run inference on test set')
 parser.add_argument('--dim_hidden', type=int, default=512, metavar='N',
                     help='how many hidden dimensions')
-parser.add_argument('--c', type=int, default=32, metavar='N',
+parser.add_argument('--c', type=int, default=124, metavar='N',
                     help='number of dimension for shared feature space')
+# task 1: upper bound for embedding space ~ 500
 parser.add_argument('--margin', type=float, default=0.2, metavar='M',
                     help='margin in the loss function')
 parser.add_argument('--gamma', type=float, default=1.0, metavar='M',
@@ -68,6 +69,8 @@ def main():
     global args
     args = parser.parse_args()
 
+    print(torch.cuda.is_available())
+
     args.cuda = not args.no_cuda and torch.cuda.is_available()
     torch.manual_seed(args.seed)
     if args.cuda:
@@ -96,9 +99,11 @@ def main():
     train_set = FLICKR30K(mode='train')
     bow_vectorizer = train_set.vectorizer
     train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True)
-    test_loader = DataLoader(FLICKR30K(mode='test', vectorizer=bow_vectorizer), batch_size=args.batch_size,
+    test_loader = DataLoader(FLICKR30K(mode='test', vectorizer=bow_vectorizer),# batch_size=args.batch_size,  TODO
+                             batch_size=4000,
                              shuffle=False)
-    val_loader = DataLoader(FLICKR30K(mode='val', vectorizer=bow_vectorizer), batch_size=args.batch_size,
+    val_loader = DataLoader(FLICKR30K(mode='val', vectorizer=bow_vectorizer),# batch_size=args.batch_size,  TODO
+                            batch_size=20000,
                             shuffle=False)
     print("created train_loader, test_loader and val_loader!")
 
@@ -174,9 +179,11 @@ def train(train_loader, model, optimizer, epoch):
         # pass data samples to model
         F, G = model(x, y)  # TODO: change dtype earlier ?
 
-        # TODO: Use F, G and B to compute the MAP@10 and loss
-        map = None
+        # TODO: Use F and G to compute the MAP@10 and loss
+        map = torch.tensor([[1]]) # TODO
         loss = biranking_loss(F, G, args.margin, eps=1e-8)
+
+        # TODO: report validation loss
 
         # record MAP@10 and loss
         num_pairs = len(x)
@@ -205,6 +212,26 @@ def test(test_loader, model):
     model.eval()
 
     # TODO: Iterate over test set and evaluate MAP@10
+    # IDEA: just keep 10 test images with highest ranking (or even just image nr. 10)
+    for batch_idx, (x, y) in enumerate(test_loader):
+        if args.cuda:
+            x = x.cuda()
+            y = y.cuda()
+
+        F, G = model(x, y)
+        rank(F, G)
+
+        # when using batches:
+        # F_batch, G_batch = model(x, y)
+        # F = torch.cat((F, F_batch), 0)
+        # append / concatenate F_batch and G_batch to F and G
+        # check https://github.com/josharnoldjosh/Image-Caption-Joint-Embedding/blob/master/model.py
+
+    # for every G: rank F --> F' and calculate AP@10(G,F')
+    # MAP@10 = sum(AP@10) / len(test_set)
+    # TODO: check average meter
+
+
     test_desc = None
     test_img = None
     map = mapk(test_desc, test_img)
@@ -214,6 +241,39 @@ def test(test_loader, model):
         round(map * 100, 2)))
 
     return map
+
+
+def rank(a, b, k=10):
+    # torch.argmax(cossim)
+    cossim = compute_cosine_similarity_matrix(a, b)
+    values, indices = torch.topk(cossim, k)
+    return values, indices
+
+
+def compute_cosine_similarity_matrix(a, b, eps=1e-8):
+    # compute cosine similarity matrix of all pairs in a and b
+    a_n, b_n = a.norm(dim=-1, keepdim=True), b.norm(dim=-1, keepdim=True)
+    a_norm = a / torch.max(a_n, eps * torch.ones_like(a_n))
+    b_norm = b / torch.max(b_n, eps * torch.ones_like(b_n))
+    cossim = torch.mm(a_norm, b_norm.transpose(-2, -1))
+    return cossim
+
+
+def rank_images(test_loader, caption_bow, distance_metric, show_images=True):
+    """
+    given a dataset provided by test_loader and a specific caption bow, rank images according to distance_metric
+
+    :param test_loader:
+    :param caption_bow:
+    :param show_images:
+    :return:
+    """
+    for batch_idx, (x, y) in enumerate(test_loader):
+        if args.cuda:
+            x = x.cuda()
+            y = y.cuda()
+
+        F, G = model(x, y)
 
 
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
