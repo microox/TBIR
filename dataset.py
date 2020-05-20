@@ -33,6 +33,7 @@ class FLICKR30K(Dataset):
         print("loading %s..." % csv_file_captions)
         data_captions = pd.read_csv(os.path.join(datapath, csv_file_captions))  # TODO self.df_all_captions for debugging ?
         corpus = [item for sublist in data_captions.iloc[:, 1:].values.tolist() for item in sublist]
+        self.vectorizer = vectorizer
         if mode in ['train']:
             self.data_bow = self._create_bow(corpus)  # TODO: create BOW outside of data_set
         else:

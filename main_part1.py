@@ -20,9 +20,9 @@ parser.add_argument('--name', default='BasicModel', type=str,
                     help='name of experiment')
 parser.add_argument('--gpu', type=int, default=0, metavar='N',
                     help='id of gpu to use')
-parser.add_argument('--batch_size', type=int, default=4, metavar='N',
-                    help='input batch size for training (default: 256)')
-parser.add_argument('--epochs', type=int, default=10, metavar='N',
+parser.add_argument('--batch_size', type=int, default=128, metavar='N',
+                    help='input batch size for training (default: 128); must be at least 10!')
+parser.add_argument('--epochs', type=int, default=1, metavar='N',
                     help='number of epochs to train (default: 100)')
 parser.add_argument('--start_epoch', type=int, default=1, metavar='N',
                     help='number of start epoch (default: 1)')
@@ -30,7 +30,7 @@ parser.add_argument('--lr', type=float, default=5e-5, metavar='LR',
                     help='learning rate (default: 5e-5)')
 parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
-parser.add_argument('--no-cuda', action='store_true', default=False,
+parser.add_argument('--no-cuda', action='store_true', default=True,
                     help='if set, disables CUDA training')
 parser.add_argument('--log-interval', type=int, default=50, metavar='N',
                     help='how many batches to wait before logging training status')
@@ -40,7 +40,7 @@ parser.add_argument('--test', dest='test', action='store_true', default=False,
                     help='To only run inference on test set')
 parser.add_argument('--dim_hidden', type=int, default=512, metavar='N',
                     help='how many hidden dimensions')
-parser.add_argument('--c', type=int, default=8, metavar='N',
+parser.add_argument('--c', type=int, default=32, metavar='N',
                     help='number of dimension for shared feature space')
 # task 1: upper bound for embedding space ~ 500
 parser.add_argument('--margin', type=float, default=0.2, metavar='M',
@@ -190,16 +190,21 @@ def train(train_loader, model, optimizer, epoch):
         F, G = model(x, y)  # TODO: change dtype earlier ?
 
         # TODO: Use F and G to compute the MAP@10 and loss
-        # map = torch.tensor([[1]])  # TODO
+        # IMPORTANT: for training, the map score is just calculated for the given batch.
+        # Hence having a small batchsize will retrieve a higher MAP, thus score is only meant as sanity check!
+        # In test(), map is calculated for whole dataset, hence that MAP is correct
         map = mapk2(F, G, k=10)
         loss = biranking_loss(F, G, args.margin, eps=1e-8)
 
-        # TODO: report validation loss
+        # TODO: remove this
+        # caption_test = "This is a test!"
+        # demonstrate(caption_test, train_loader, model)
 
         # record MAP@10 and loss
         num_pairs = len(x)
         losses.update(loss.item(), num_pairs)
-        maps.update(map.item(), num_pairs)
+        # maps.update(map.item(), num_pairs)
+        maps.update(map, num_pairs)
 
         # compute gradient and do optimizer step
         optimizer.zero_grad()
@@ -230,6 +235,7 @@ def test(test_loader, model):
             y = y.cuda()
 
         F, G = model(x, y)
+
         map = mapk2(F, G)
         print(map)
         # values, indices = rank(F, G)
@@ -242,17 +248,59 @@ def test(test_loader, model):
     # test_img = None
     # map = mapk(test_desc, test_img)
 
-    print('\n{} set: MAP@10: {:.2f}\n'.format(
+    print('\n{} set: MAP@10: {:.2f}\%\n'.format(
         test_loader.dataset.mode,
         round(map * 100, 2)))
 
+    # novel
+    # CAPTION1 = "Two dogs play in the garden."
+    CAPTION1 = "There is a man, a woman, two dogs, the ones that look like socks - and Peter! Ha! OHHHHH PETER!"
+
+    # 146019208
+    CAPTION2 = "Two men on a snowy and rocky mountainside cook a meal while their teammates sit a little way away ."
+    CAPTION3 = "Two people with a bit of equipment sitting on some rocks with snow in the background ."
+    CAPTION4 = "Two people in heaving clothing preparing food on a mountain ."
+    CAPTION5 = "Two men share a meal on a snow covered mountain ."
+    CAPTION6 = "Two men sitting outside in coats ."
+
+    demonstrate(CAPTION1, test_loader, model)
+    demonstrate(CAPTION2, test_loader, model)
+    demonstrate(CAPTION3, test_loader, model)
+    demonstrate(CAPTION4, test_loader, model)
+    demonstrate(CAPTION5, test_loader, model)
+    demonstrate(CAPTION6, test_loader, model)
+
     return map
+
+
+def demonstrate(caption, test_loader, model):
+
+    print("demonstrating \"%s\"" % caption)
+
+    model.eval()
+
+    bow_vectorizer = test_loader.dataset.vectorizer
+
+    for batch_idx, (image_features, y, img_names) in enumerate(test_loader):
+        if args.cuda:
+            image_features = image_features.cuda()
+            y = y.cuda()
+
+        bow = bow_vectorizer.transform([caption]).toarray()
+        print(bow)
+        F = model.forward_img(image_features)
+        G = model.forward_caption(torch.from_numpy(bow))
+        print("done")
+        similarities, indices = rank(F, G)
+        # TODO: show image
+        image_names = img_names[indices]
+        show_images(image_names, caption=caption)
 
 
 def rank(a, b, k=10):
     # torch.argmax(cossim)
     cossim = compute_cosine_similarity_matrix(a, b)
-    values, indices = torch.topk(cossim, k)
+    values, indices = torch.topk(cossim, k, dim=0)
     return values, indices
 
 
@@ -265,9 +313,11 @@ def compute_cosine_similarity_matrix(a, b, eps=1e-8):
     return cossim
 
 
-def show_images(img_names):
+def show_images(img_names, caption=None):
     assert len(img_names) == 10
     fig, axes = plt.subplots(2, 5, figsize=(20, 10))
+    if caption is not None:
+        fig.suptitle(caption, fontsize=16)
     for i, ax in enumerate(axes.flat):
         img_name = "%s.jpg" % img_names[i].item()
         img = mpimg.imread(os.path.join("data", "images", img_name))  # TODO: data path variable

@@ -35,7 +35,6 @@ def mapk2(a, b, eps=1e-8, k=10):
 
 
 def sort_tensor_by_indices(a, b):
-    print("calculating map")
     ap = []
     for i in range(b.shape[0]):
         # change the order of the ith tensor of a with the indexes of b[i]
@@ -44,5 +43,4 @@ def sort_tensor_by_indices(a, b):
             c[j] = c[j] * 1/(j+1)
         ap.append(sum(c).item())
     map = sum(ap) / len(ap)
-    print("--> finished calculating map")
     return map
