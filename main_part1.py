@@ -10,6 +10,9 @@ from losses import *
 from eval import *
 from dataset import *
 
+import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
+
 from util import get_train_val_test_split, split_captions, split_imgs
 
 parser = argparse.ArgumentParser(description='Cross-modal Retrieval (Part 1)')
@@ -17,9 +20,9 @@ parser.add_argument('--name', default='BasicModel', type=str,
                     help='name of experiment')
 parser.add_argument('--gpu', type=int, default=0, metavar='N',
                     help='id of gpu to use')
-parser.add_argument('--batch_size', type=int, default=128, metavar='N',
-                    help='input batch size for training (default: 128)')
-parser.add_argument('--epochs', type=int, default=100, metavar='N',
+parser.add_argument('--batch_size', type=int, default=4, metavar='N',
+                    help='input batch size for training (default: 256)')
+parser.add_argument('--epochs', type=int, default=10, metavar='N',
                     help='number of epochs to train (default: 100)')
 parser.add_argument('--start_epoch', type=int, default=1, metavar='N',
                     help='number of start epoch (default: 1)')
@@ -27,8 +30,8 @@ parser.add_argument('--lr', type=float, default=5e-5, metavar='LR',
                     help='learning rate (default: 5e-5)')
 parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
-parser.add_argument('--no-cuda', action='store_true', default=True,
-                    help='enables CUDA training')
+parser.add_argument('--no-cuda', action='store_true', default=False,
+                    help='if set, disables CUDA training')
 parser.add_argument('--log-interval', type=int, default=50, metavar='N',
                     help='how many batches to wait before logging training status')
 parser.add_argument('--resume', default='', type=str,
@@ -37,7 +40,7 @@ parser.add_argument('--test', dest='test', action='store_true', default=False,
                     help='To only run inference on test set')
 parser.add_argument('--dim_hidden', type=int, default=512, metavar='N',
                     help='how many hidden dimensions')
-parser.add_argument('--c', type=int, default=124, metavar='N',
+parser.add_argument('--c', type=int, default=8, metavar='N',
                     help='number of dimension for shared feature space')
 # task 1: upper bound for embedding space ~ 500
 parser.add_argument('--margin', type=float, default=0.2, metavar='M',
@@ -48,7 +51,7 @@ parser.add_argument('--eta', type=float, default=1.0, metavar='M',
                     help='factor in the loss function')
 
 # own arguments
-parser.add_argument('--task', type=int, choices=[1,2], default=1,
+parser.add_argument('--task', type=int, choices=[1, 2], default=1,
                     help='determines which task should be performed (choices: 1,2, default: 1)')
 parser.add_argument('--split_dataset', dest='split_dataset', action='store_true', default=False,
                     help='set this flag if the dataset was not split in train- val- and testset')
@@ -63,19 +66,24 @@ parser.add_argument('--caption_path', type=str, metavar='P', default='data/resul
                          'only used, if caption csv-files (train_captions.csv, val_captions.csv, test_captions.csv)' +
                          'do not exist yet')
 
+# for demo
+# TODO
+parser.add_argument('--query_mode', action='store_true', default=False,
+                    help='if set, enable query-mode')
+parser.add_argument('--query', type=str, metavar='Q',
+                    default='This is an exemplar query where two guys sit on a bike. ',
+                    help='use this argument to enter an exemplar query')
+
 
 def main():
     # enable GPU learning
     global args
     args = parser.parse_args()
 
-    print(torch.cuda.is_available())
-
     args.cuda = not args.no_cuda and torch.cuda.is_available()
     torch.manual_seed(args.seed)
     if args.cuda:
         torch.cuda.set_device(args.gpu)
-        print(torch.cuda.current_device())
         torch.cuda.manual_seed(args.seed)
 
     print("starting with following args:\n%s" % vars(args))  # TODO: implement logger if time left
@@ -99,12 +107,13 @@ def main():
     train_set = FLICKR30K(mode='train')
     bow_vectorizer = train_set.vectorizer
     train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True)
-    test_loader = DataLoader(FLICKR30K(mode='test', vectorizer=bow_vectorizer),# batch_size=args.batch_size,  TODO
-                             batch_size=4000,
-                             shuffle=False)
-    val_loader = DataLoader(FLICKR30K(mode='val', vectorizer=bow_vectorizer),# batch_size=args.batch_size,  TODO
-                            batch_size=20000,
-                            shuffle=False)
+
+    test_set = FLICKR30K(mode='test', vectorizer=bow_vectorizer)
+    test_loader = DataLoader(test_set, batch_size=4000, shuffle=False)  # TODO: make generic batch_size = tesset_size
+
+    val_set = FLICKR30K(mode='val', vectorizer=bow_vectorizer)
+    val_loader = DataLoader(val_set, batch_size=20000, shuffle=False)  # TODO: batch_size = valset_size
+
     print("created train_loader, test_loader and val_loader!")
 
     # create a model for cross-modal retrieval
@@ -149,7 +158,8 @@ def main():
         train(train_loader, model, optimizer, epoch)
 
         # evaluate on validation set
-        map = test(val_loader, model)
+        # map = test(val_loader, model)  TODO!
+        map = 1
 
         # remember best MAP@10 and save checkpoint
         is_best = map > best_map
@@ -171,7 +181,7 @@ def train(train_loader, model, optimizer, epoch):
 
     # switch to train mode
     model.train()
-    for batch_idx, (x, y) in enumerate(train_loader):
+    for batch_idx, (x, y, img_names) in enumerate(train_loader):
         if args.cuda:
             x = x.cuda()
             y = y.cuda()
@@ -180,7 +190,8 @@ def train(train_loader, model, optimizer, epoch):
         F, G = model(x, y)  # TODO: change dtype earlier ?
 
         # TODO: Use F and G to compute the MAP@10 and loss
-        map = torch.tensor([[1]]) # TODO
+        # map = torch.tensor([[1]])  # TODO
+        map = mapk2(F, G, k=10)
         loss = biranking_loss(F, G, args.margin, eps=1e-8)
 
         # TODO: report validation loss
@@ -213,28 +224,23 @@ def test(test_loader, model):
 
     # TODO: Iterate over test set and evaluate MAP@10
     # IDEA: just keep 10 test images with highest ranking (or even just image nr. 10)
-    for batch_idx, (x, y) in enumerate(test_loader):
+    for batch_idx, (x, y, img_names) in enumerate(test_loader):
         if args.cuda:
             x = x.cuda()
             y = y.cuda()
 
         F, G = model(x, y)
-        rank(F, G)
-
-        # when using batches:
-        # F_batch, G_batch = model(x, y)
-        # F = torch.cat((F, F_batch), 0)
-        # append / concatenate F_batch and G_batch to F and G
-        # check https://github.com/josharnoldjosh/Image-Caption-Joint-Embedding/blob/master/model.py
+        map = mapk2(F, G)
+        print(map)
+        # values, indices = rank(F, G)
 
     # for every G: rank F --> F' and calculate AP@10(G,F')
     # MAP@10 = sum(AP@10) / len(test_set)
     # TODO: check average meter
 
-
-    test_desc = None
-    test_img = None
-    map = mapk(test_desc, test_img)
+    # test_desc = None
+    # test_img = None
+    # map = mapk(test_desc, test_img)
 
     print('\n{} set: MAP@10: {:.2f}\n'.format(
         test_loader.dataset.mode,
@@ -259,21 +265,21 @@ def compute_cosine_similarity_matrix(a, b, eps=1e-8):
     return cossim
 
 
-def rank_images(test_loader, caption_bow, distance_metric, show_images=True):
-    """
-    given a dataset provided by test_loader and a specific caption bow, rank images according to distance_metric
+def show_images(img_names):
+    assert len(img_names) == 10
+    fig, axes = plt.subplots(2, 5, figsize=(20, 10))
+    for i, ax in enumerate(axes.flat):
+        img_name = "%s.jpg" % img_names[i].item()
+        img = mpimg.imread(os.path.join("data", "images", img_name))  # TODO: data path variable
+        ax.set_title("%d: %s" % ((i + 1), img_name))
+        ax.imshow(img)
+        plt.setp(ax.get_xticklabels(), visible=False)
+        plt.setp(ax.get_yticklabels(), visible=False)
+    plt.show()
 
-    :param test_loader:
-    :param caption_bow:
-    :param show_images:
-    :return:
-    """
-    for batch_idx, (x, y) in enumerate(test_loader):
-        if args.cuda:
-            x = x.cuda()
-            y = y.cuda()
 
-        F, G = model(x, y)
+def query(caption):
+    pass
 
 
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):

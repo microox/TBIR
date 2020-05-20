@@ -42,10 +42,8 @@ class FLICKR30K(Dataset):
         # TODO 1 image has 5 captions !
         image_features = np.array(self.data_img.iloc[int(index / 5), 1:])
         captions = self.data_bow.getrow(index).toarray().ravel()
-        # sample = {'image_features': image_features, 'captions': captions}
-        # TODO print vocabulary / image for debugging purposes (and for report)
-        # TODO: convert to tensor for pycharm input (?) --> check documentation on __getitem__
-        return image_features, captions
+        image_name = self.data_img.iloc[int(index / 5), 0]
+        return image_features, captions, image_name
 
     def __len__(self):
         length = self.data_img.shape[0] * 5
@@ -75,6 +73,6 @@ class FLICKR30K(Dataset):
         """
         print("fitting vectorizer on captions from training set and transforming captions to bow model...")
         assert self.mode in ['train']
-        self.vectorizer = TfidfVectorizer(lowercase=True, ngram_range=(1, 1), max_features=1024,
+        self.vectorizer = TfidfVectorizer(lowercase=True, ngram_range=(1, 1), max_features=2048,
                                           min_df=0, max_df=0.1, smooth_idf=True)
         return self.vectorizer.fit_transform(corpus)
