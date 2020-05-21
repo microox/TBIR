@@ -74,6 +74,6 @@ class FLICKR30K(Dataset):
         """
         print("fitting vectorizer on captions from training set and transforming captions to bow model...")
         assert self.mode in ['train']
-        self.vectorizer = TfidfVectorizer(lowercase=True, ngram_range=(1, 1), max_features=2048,
-                                          min_df=0, max_df=0.1, smooth_idf=True)
+        self.vectorizer = TfidfVectorizer(lowercase=True, ngram_range=(1, 2), max_features=2048,
+                                          min_df=0, max_df=0.33, smooth_idf=True, stop_words='english')
         return self.vectorizer.fit_transform(corpus)

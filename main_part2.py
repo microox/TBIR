@@ -1,0 +1,432 @@
+import torch
+import argparse
+import torch.optim as optim
+import os
+import sys
+import shutil
+from torch.utils.data import DataLoader
+from models import *
+from losses import *
+from eval import *
+from dataset import *
+import pickle
+import pprint
+
+import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
+
+from util import get_train_val_test_split, split_captions, split_imgs
+
+parser = argparse.ArgumentParser(description='Cross-modal Retrieval (Part 1)')
+parser.add_argument('--name', default='BasicModel', type=str,
+                    help='name of experiment')
+parser.add_argument('--gpu', type=int, default=0, metavar='N',
+                    help='id of gpu to use')
+parser.add_argument('--batch_size', type=int, default=128, metavar='N',
+                    help='input batch size for training (default: 128); must be at least 10 in order to retrieve map@10 for training!')
+parser.add_argument('--epochs', type=int, default=15, metavar='N',
+                    help='number of epochs to train (default: 100)')
+parser.add_argument('--start_epoch', type=int, default=1, metavar='N',
+                    help='number of start epoch (default: 1)')
+parser.add_argument('--lr', type=float, default=5e-5, metavar='LR',
+                    help='learning rate (default: 5e-5)')
+parser.add_argument('--seed', type=int, default=1, metavar='S',
+                    help='random seed (default: 1)')
+parser.add_argument('--no-cuda', action='store_true', default=False,
+                    help='if set, disables CUDA training')
+parser.add_argument('--log-interval', type=int, default=50, metavar='N',
+                    help='how many batches to wait before logging training status')
+# if you want to resume, type 'runs/BasicModel/model_best.pth.tar'
+parser.add_argument('--resume', default='runs/BasicModel/model_best.pth.tar', type=str,
+                    help='path to latest checkpoint (default: none)')
+parser.add_argument('--test', dest='test', action='store_true', default=True,
+                    help='To only run inference on test set')
+parser.add_argument('--dim_hidden', type=int, default=512, metavar='N',
+                    help='how many hidden dimensions')
+parser.add_argument('--c', type=int, default=64, metavar='N',
+                    help='number of dimension for shared feature space')
+# task 1: upper bound for embedding space ~ 500
+parser.add_argument('--margin', type=float, default=0.2, metavar='M',
+                    help='margin in the loss function')
+parser.add_argument('--gamma', type=float, default=1.0, metavar='M',
+                    help='factor in the loss function')
+parser.add_argument('--eta', type=float, default=1.0, metavar='M',
+                    help='factor in the loss function')
+
+# own arguments
+parser.add_argument('--demonstrate_in_testing', action='store_true', default=True,
+                    help='if set, show some images while testing (default: false)')
+parser.add_argument('--vectorizer_path', type=str, default="vectorizer.pickle", metavar='P',
+                    help='specifies where to save (or load) the vectorizer that creates the bow')
+parser.add_argument('--task', type=int, choices=[1, 2], default=1,
+                    help='determines which task should be performed (choices: 1,2, default: 1)')
+parser.add_argument('--split_dataset', dest='split_dataset', action='store_true', default=False,
+                    help='set this flag if the dataset was not split in train- val- and testset')
+parser.add_argument('--dataset_split_location', type=str, metavar='P', default='data',
+                    help='specifies where train.txt, test.txt and val.txt are located\n' +
+                         '(txt-files specify train-val-test-split and can be obtained from ' +
+                         'https://github.com/BryanPlummer/flickr30k_entities )')
+parser.add_argument('--img_feature_path', type=str, metavar='P', default='data/image_features.csv',
+                    help='specifies, where csv file with image feature (default: data/image_features.csv) ')
+parser.add_argument('--caption_path', type=str, metavar='P', default='data/results_20130124.token',
+                    help='specifies exact filepath where captions are stored (i.e. results_20130124.token)\n' +
+                         'only used, if caption csv-files (train_captions.csv, val_captions.csv, test_captions.csv)' +
+                         'do not exist yet')
+
+# for demo
+# TODO
+parser.add_argument('--query', type=str, metavar='Q',
+                    default='',
+                    help='use this argument to enter an exemplar query')
+
+TEST_CAPTIONS = [
+    # debug sentences
+    "men .",
+    "women .",
+    "dogs .",
+    "Dogs .",
+    "dog .",
+    "orange uniform .",
+    "brrr, dsaafjf, wdakc, dwdal.",
+
+    # 146019208
+    "Two men on a snowy and rocky mountainside cook a meal while their teammates sit a little way away .",
+    "Two people with a bit of equipment sitting on some rocks with snow in the background .",
+    "Two people in heaving clothing preparing food on a mountain .",
+    "Two men share a meal on a snow covered mountain .",
+    "Two men sitting outside in coats ."
+]
+
+
+def main():
+    global args
+    args = parser.parse_args()
+
+    if args.query:
+        # if a query was specified, automatically switch to test mode
+        # and demonstrate the query on model that was specified in --resume
+        args.test = True
+        if not args.resume:
+            args.resume = 'runs/BasicModel/model_best.pth.tar'
+    args.train = not args.test
+
+    # gpu learning
+    args.cuda = not args.no_cuda and torch.cuda.is_available()
+    torch.manual_seed(args.seed)
+    if args.cuda:
+        torch.cuda.set_device(args.gpu)
+        torch.cuda.manual_seed(args.seed)
+
+    # TODO: delete
+    print("---- using following args ----\n")
+    pprint.pprint(vars(args))
+    print("----------------------------------------")
+
+    # check if csv-files for train-, val- and test-set exist,
+    # otherwise, generate them according to https://github.com/BryanPlummer/flickr30k_entities
+    if args.split_dataset:
+        print("generating train-val-test split according to https://github.com/BryanPlummer/flickr30k_entities")
+        paths = []
+        for txt_file in ['train.txt', 'val.txt', 'test.txt']:
+            paths.append(os.path.join(args.dataset_split_location, txt_file))
+        train_idcs, val_idcs, test_idcs = get_train_val_test_split(train_path=paths[0],
+                                                                   val_path=paths[1],
+                                                                   test_path=paths[2],
+                                                                   verbose=True)
+        split_imgs(img_path=args.img_feature_path, training_set=train_idcs, val_set=val_idcs, test_set=test_idcs)
+        split_captions(caption_path=args.caption_path, training_set=train_idcs, val_set=val_idcs, test_set=test_idcs)
+
+    if args.train:
+        # obtain data loaders for train, validation and test sets
+        print("entered train mode")
+        train_set = FLICKR30K(mode='train')
+        train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True)
+        bow_vectorizer = train_set.vectorizer
+        pickle.dump(bow_vectorizer, open(args.vectorizer_path, "wb"))
+
+        val_set = FLICKR30K(mode='val', vectorizer=bow_vectorizer)
+        val_loader = DataLoader(val_set, batch_size=10000, shuffle=False)
+
+        test_set = FLICKR30K(mode='test', vectorizer=bow_vectorizer)
+        test_loader = DataLoader(test_set, batch_size=10000,
+                                 shuffle=False)  # TODO: make generic batch_size = tesset_size
+        print("created train_loader, test_loader and val_loader!")
+    else:
+        # obtain only data loader for test sets
+        print("entered test mode: no training, only parsing test set!")
+        assert args.test and args.resume, \
+            "If you want to demonstrate or test a model, you have to specify its path with --resume path_to_model !"
+        bow_vectorizer = pickle.load(open(args.vectorizer_path, 'rb'))
+        test_set = FLICKR30K(mode='test', vectorizer=bow_vectorizer)
+        test_loader = DataLoader(test_set, batch_size=10000,
+                                 shuffle=False)  # TODO: make generic batch_size = tesset_size
+        print("created test_loader!")
+
+    # create a model for cross-modal retrieval
+    img_dim, txt_dim = test_set.get_dimensions()
+    model = ModelPart1(img_dim, txt_dim, args.dim_hidden, args.c)
+
+    if args.cuda:
+        model.cuda()
+
+    best_map = 0
+
+    # optionally resume from a checkpoint
+    if args.resume:
+        if os.path.isfile(args.resume):
+            print("=> loading checkpoint '{}'".format(args.resume))
+            checkpoint = torch.load(args.resume, map_location='cpu')
+            args.start_epoch = checkpoint['epoch'] + 1
+            best_map = checkpoint['best_map']
+            model.load_state_dict(checkpoint['state_dict'])
+            model.to(torch.cuda.current_device())
+            print("=> loaded checkpoint '{}' (epoch {})"
+                  .format(args.resume, checkpoint['epoch']))
+        else:
+            print("=> no checkpoint found at '{}'".format(args.resume))
+
+    # query a caption
+    if args.query:
+        query(test_loader, model, args.query)
+        sys.exit()
+
+    # test the model
+    if args.test:
+        test(test_loader, model)
+        sys.exit()
+
+    # set optimizer
+    parameters = filter(lambda p: p.requires_grad, model.parameters())
+    optimizer = optim.Adam(parameters, lr=args.lr)
+    n_parameters = sum([p.data.nelement() for p in model.parameters()])
+    print('  + Number of params: {}'.format(n_parameters))
+
+    # start training loop
+    for epoch in range(args.start_epoch, args.epochs + 1):
+        # update learning rate
+        adjust_learning_rate(optimizer, epoch)
+
+        # train for one epoch
+        train(train_loader, model, optimizer, epoch)
+
+        # evaluate on validation set
+        map = test(val_loader, model)
+
+        # remember best MAP@10 and save checkpoint
+        is_best = map > best_map
+        best_map = max(map, best_map)
+        save_checkpoint({
+            'epoch': epoch,
+            'state_dict': model.state_dict(),
+            'best_map': best_map,
+        }, is_best)
+
+    checkpoint = torch.load('runs/%s/' % (args.name) + 'model_best.pth.tar')
+    model.load_state_dict(checkpoint['state_dict'])
+    test(test_loader, model)
+
+
+def train(train_loader, model, optimizer, epoch):
+    losses = AverageMeter()
+    maps = AverageMeter()
+
+    # switch to train mode
+    model.train()
+    for batch_idx, (x, y, img_names) in enumerate(train_loader):
+        if args.cuda:
+            x = x.cuda()
+            y = y.cuda()
+
+        # pass data samples to model
+        F, G = model(x, y)
+
+        # IMPORTANT: for training, the map score is just calculated for the given batch.
+        # Hence having a small batch size will retrieve a higher MAP, thus score is only meant as sanity check!
+        # In test(), map is calculated for the whole dataset
+        map = mapk2(F, G, k=10)
+        loss = biranking_loss(F, G, args.margin, eps=1e-8)
+
+        # record MAP@10 and loss
+        num_pairs = len(x)
+        losses.update(loss.item(), num_pairs)
+        maps.update(map, num_pairs)
+
+        # compute gradient and do optimizer step
+        optimizer.zero_grad()
+
+        if loss == loss:
+            loss.backward()
+            optimizer.step()
+
+        # print progress
+        if batch_idx % args.log_interval == 0:
+            print('Train Epoch: {} [{}/{}]\t'
+                  'Loss: {:.4f} ({:.4f}) \t'
+                  'MAP@10: {:.2f}% ({:.2f}%)'.format(
+                epoch, batch_idx * num_pairs, len(train_loader.dataset),
+                losses.val, losses.avg,
+                       100. * maps.val, 100. * maps.avg))
+
+
+def test(test_loader, model):
+    # switch to evaluation mode
+    model.eval()
+
+    # yield full data set at once
+    for batch_idx, (x, y, img_names) in enumerate(test_loader):
+        if args.cuda:
+            x = x.cuda()
+            y = y.cuda()
+
+        # calculate map@10 for full validation / test set
+        F, G = model(x, y)
+        map = mapk2(F, G)
+
+        if args.demonstrate_in_testing:
+            # demonstrate performance on TEST_CAPTIONS
+            print("going to demonstrate models retrieving capabilities for captions specified in TEST_CAPTIONS...")
+            bow_vectorizer = test_loader.dataset.vectorizer
+            for caption in TEST_CAPTIONS:
+                demonstrate_fast(caption, model, x[::5], img_names[::5], bow_vectorizer)
+
+    # print map@10 for validation / test set
+    print('\n{} set: MAP@10: {:.2f}%%\n'.format(
+        test_loader.dataset.mode,
+        round(map * 100, 2)))
+
+    return map
+
+
+def query(test_loader, model, caption):
+    # switch to evaluation mode
+    model.eval()
+
+    # yield full data set at once
+    for batch_idx, (x, y, img_names) in enumerate(test_loader):
+        if args.cuda:
+            x = x.cuda()
+            y = y.cuda()
+
+        F, G = model(x, y)
+
+        bow_vectorizer = test_loader.dataset.vectorizer
+        demonstrate_fast(caption, model, x[::5], img_names[::5], bow_vectorizer)
+
+
+def demonstrate_fast(caption, model, image_features, image_names, bow_vectorizer):
+    print("demonstrating (fast) \"%s\"" % caption)
+
+    # ensure that model is in evaluation mode
+    model.eval()
+
+    # calculate bow on the spot and convert it to tensor
+    bow = torch.from_numpy(bow_vectorizer.transform([caption]).toarray())
+
+    # make sure that tensors are on right device
+    if args.cuda:
+        image_features = image_features.cuda()
+        bow = bow.cuda()
+
+    # forward image features from test set and bow for whose caption to demonstrate
+    F = model.forward_img(image_features)
+    G = model.forward_caption(bow)
+
+    # retrieve ten most similar images according to cosine similarity in embedding space
+    similarities, indices = rank(F, G)
+    image_names = image_names[indices]
+    show_images(image_names, caption=caption)
+
+
+def demonstrate(caption, test_loader, model):
+    print("demonstrating \"%s\"" % caption)
+
+    model.eval()
+
+    bow_vectorizer = test_loader.dataset.vectorizer
+
+    for batch_idx, (image_features, y, img_names) in enumerate(test_loader):
+        if args.cuda:
+            image_features = image_features.cuda()
+            y = y.cuda()
+
+        # take only every fifth image feature, img_name due to repetition
+        image_features = image_features[::5]
+        img_names = img_names[::5]
+
+        bow = bow_vectorizer.transform([caption]).toarray()
+        F = model.forward_img(image_features)
+        G = model.forward_caption(torch.from_numpy(bow))
+        similarities, indices = rank(F, G)
+        image_names = img_names[indices]
+        show_images(image_names, caption=caption)
+
+
+def rank(a, b, k=10):
+    cossim = compute_cosine_similarity_matrix(a, b)
+    values, indices = torch.topk(cossim, k, dim=0)
+    return values, indices
+
+
+def compute_cosine_similarity_matrix(a, b, eps=1e-8):
+    # compute cosine similarity matrix of all pairs in a and b
+    a_n, b_n = a.norm(dim=-1, keepdim=True), b.norm(dim=-1, keepdim=True)
+    a_norm = a / torch.max(a_n, eps * torch.ones_like(a_n))
+    b_norm = b / torch.max(b_n, eps * torch.ones_like(b_n))
+    cossim = torch.mm(a_norm, b_norm.transpose(-2, -1))
+    return cossim
+
+
+def show_images(img_names, caption=None):
+    assert len(img_names) == 10
+    fig, axes = plt.subplots(2, 5, figsize=(20, 10))
+    if caption is not None:
+        fig.suptitle(caption, fontsize=16)
+    for i, ax in enumerate(axes.flat):
+        img_name = "%s.jpg" % img_names[i].item()
+        img = mpimg.imread(os.path.join("data", "images", img_name))  # TODO: data path variable
+        ax.set_title("%d: %s" % ((i + 1), img_name))
+        ax.imshow(img)
+        plt.setp(ax.get_xticklabels(), visible=False)
+        plt.setp(ax.get_yticklabels(), visible=False)
+    plt.show()
+
+
+def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
+    """saves checkpoint to disk"""
+    directory = "runs/%s/" % (args.name)
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+    filename = directory + filename
+    torch.save(state, filename)
+    if is_best:
+        shutil.copyfile(filename, 'runs/%s/' % (args.name) + 'model_best.pth.tar')
+
+
+class AverageMeter(object):
+    """computes and stores the average and current value"""
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+
+
+def adjust_learning_rate(optimizer, epoch):
+    """sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
+    lr = args.lr * ((1 - 0.015) ** epoch)
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
+
+
+if __name__ == '__main__':
+    main()
