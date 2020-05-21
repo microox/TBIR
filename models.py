@@ -28,13 +28,14 @@ class ModelPart1(nn.Module):
 
         return F, G
 
+    def forward_img(self, x):
+        F = self.img_proj(x.float())
+        return F
+
     def forward_caption(self, y):
         G = self.txt_proj(y.float())
         return G
 
-    def forward_img(self, x):
-        F = self.txt_proj(x.float())
-        return F
 
 class BasicModel(nn.Module):
     def __init__(self, img_dim, txt_dim, hidden_dim, c):

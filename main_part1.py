@@ -22,7 +22,7 @@ parser.add_argument('--gpu', type=int, default=0, metavar='N',
                     help='id of gpu to use')
 parser.add_argument('--batch_size', type=int, default=128, metavar='N',
                     help='input batch size for training (default: 128); must be at least 10!')
-parser.add_argument('--epochs', type=int, default=1, metavar='N',
+parser.add_argument('--epochs', type=int, default=5, metavar='N',
                     help='number of epochs to train (default: 100)')
 parser.add_argument('--start_epoch', type=int, default=1, metavar='N',
                     help='number of start epoch (default: 1)')
@@ -40,7 +40,7 @@ parser.add_argument('--test', dest='test', action='store_true', default=False,
                     help='To only run inference on test set')
 parser.add_argument('--dim_hidden', type=int, default=512, metavar='N',
                     help='how many hidden dimensions')
-parser.add_argument('--c', type=int, default=32, metavar='N',
+parser.add_argument('--c', type=int, default=64, metavar='N',
                     help='number of dimension for shared feature space')
 # task 1: upper bound for embedding space ~ 500
 parser.add_argument('--margin', type=float, default=0.2, metavar='M',
@@ -73,6 +73,27 @@ parser.add_argument('--query_mode', action='store_true', default=False,
 parser.add_argument('--query', type=str, metavar='Q',
                     default='This is an exemplar query where two guys sit on a bike. ',
                     help='use this argument to enter an exemplar query')
+
+
+TEST_CAPTIONS = [
+    # debug sentences
+    "There is a man, a woman, two dogs, the ones that look like socks - and Peter! Ha! OHHHHH PETER!",
+    "guys .",
+    "men .",
+    "women .",
+    "dogs .",
+    "Dogs .",
+    "dog .",
+    "orange uniform .",
+    "brrr, dsaafjf, wdakc, dwdal.",
+
+    # 146019208
+    "Two men on a snowy and rocky mountainside cook a meal while their teammates sit a little way away .",
+    "Two people with a bit of equipment sitting on some rocks with snow in the background .",
+    "Two people in heaving clothing preparing food on a mountain .",
+    "Two men share a meal on a snow covered mountain .",
+    "Two men sitting outside in coats ."
+    ]
 
 
 def main():
@@ -109,9 +130,11 @@ def main():
     train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True)
 
     test_set = FLICKR30K(mode='test', vectorizer=bow_vectorizer)
-    test_loader = DataLoader(test_set, batch_size=4000, shuffle=False)  # TODO: make generic batch_size = tesset_size
+    print("Test set of following dimensions: " + str(test_set.get_dimensions()))
+    test_loader = DataLoader(test_set, batch_size=20000, shuffle=False)  # TODO: make generic batch_size = tesset_size
 
     val_set = FLICKR30K(mode='val', vectorizer=bow_vectorizer)
+    print("Val set of following dimensions: " + str(test_set.get_dimensions()))
     val_loader = DataLoader(val_set, batch_size=20000, shuffle=False)  # TODO: batch_size = valset_size
 
     print("created train_loader, test_loader and val_loader!")
@@ -158,8 +181,7 @@ def main():
         train(train_loader, model, optimizer, epoch)
 
         # evaluate on validation set
-        # map = test(val_loader, model)  TODO!
-        map = 1
+        map = test(val_loader, model)
 
         # remember best MAP@10 and save checkpoint
         is_best = map > best_map
@@ -191,19 +213,14 @@ def train(train_loader, model, optimizer, epoch):
 
         # TODO: Use F and G to compute the MAP@10 and loss
         # IMPORTANT: for training, the map score is just calculated for the given batch.
-        # Hence having a small batchsize will retrieve a higher MAP, thus score is only meant as sanity check!
-        # In test(), map is calculated for whole dataset, hence that MAP is correct
+        # Hence having a small batch size will retrieve a higher MAP, thus score is only meant as sanity check!
+        # In test(), map is calculated for the whole dataset
         map = mapk2(F, G, k=10)
         loss = biranking_loss(F, G, args.margin, eps=1e-8)
-
-        # TODO: remove this
-        # caption_test = "This is a test!"
-        # demonstrate(caption_test, train_loader, model)
 
         # record MAP@10 and loss
         num_pairs = len(x)
         losses.update(loss.item(), num_pairs)
-        # maps.update(map.item(), num_pairs)
         maps.update(map, num_pairs)
 
         # compute gradient and do optimizer step
@@ -227,50 +244,46 @@ def test(test_loader, model):
     # switch to evaluation mode
     model.eval()
 
-    # TODO: Iterate over test set and evaluate MAP@10
-    # IDEA: just keep 10 test images with highest ranking (or even just image nr. 10)
+    # yield full data set at once
     for batch_idx, (x, y, img_names) in enumerate(test_loader):
         if args.cuda:
             x = x.cuda()
             y = y.cuda()
 
+        # calculate map@10 for full validation / test set
         F, G = model(x, y)
-
         map = mapk2(F, G)
-        print(map)
-        # values, indices = rank(F, G)
 
-    # for every G: rank F --> F' and calculate AP@10(G,F')
-    # MAP@10 = sum(AP@10) / len(test_set)
-    # TODO: check average meter
+        # demonstrate performance on test sentences
+        bow_vectorizer = test_loader.dataset.vectorizer
+        for caption in TEST_CAPTIONS:
+            demonstrate_fast(caption, model, x[::5], img_names[::5], bow_vectorizer)
 
-    # test_desc = None
-    # test_img = None
-    # map = mapk(test_desc, test_img)
-
-    print('\n{} set: MAP@10: {:.2f}\%\n'.format(
+    # print map@10 for validation / test set
+    print('\n{} set: MAP@10: {:.2f}%%\n'.format(
         test_loader.dataset.mode,
         round(map * 100, 2)))
 
-    # novel
-    # CAPTION1 = "Two dogs play in the garden."
-    CAPTION1 = "There is a man, a woman, two dogs, the ones that look like socks - and Peter! Ha! OHHHHH PETER!"
-
-    # 146019208
-    CAPTION2 = "Two men on a snowy and rocky mountainside cook a meal while their teammates sit a little way away ."
-    CAPTION3 = "Two people with a bit of equipment sitting on some rocks with snow in the background ."
-    CAPTION4 = "Two people in heaving clothing preparing food on a mountain ."
-    CAPTION5 = "Two men share a meal on a snow covered mountain ."
-    CAPTION6 = "Two men sitting outside in coats ."
-
-    demonstrate(CAPTION1, test_loader, model)
-    demonstrate(CAPTION2, test_loader, model)
-    demonstrate(CAPTION3, test_loader, model)
-    demonstrate(CAPTION4, test_loader, model)
-    demonstrate(CAPTION5, test_loader, model)
-    demonstrate(CAPTION6, test_loader, model)
-
     return map
+
+
+def demonstrate_fast(caption, model, image_features, image_names, bow_vectorizer):
+    print("demonstrating (fast) \"%s\"" % caption)
+
+    # ensure that model is in evaluation mode
+    model.eval()
+
+    # forward image features from test set
+    F = model.forward_img(image_features)
+
+    # create and forward bow for given caption
+    bow = bow_vectorizer.transform([caption]).toarray()
+    G = model.forward_caption(torch.from_numpy(bow))
+
+    # retrieve ten most similar images according to cosine similarity in embedding space
+    similarities, indices = rank(F, G)
+    image_names = image_names[indices]
+    show_images(image_names, caption=caption)
 
 
 def demonstrate(caption, test_loader, model):
@@ -286,13 +299,14 @@ def demonstrate(caption, test_loader, model):
             image_features = image_features.cuda()
             y = y.cuda()
 
+        # take only every fifth image feature, img_name due to repetition
+        image_features = image_features[::5]
+        img_names = img_names[::5]
+
         bow = bow_vectorizer.transform([caption]).toarray()
-        print(bow)
         F = model.forward_img(image_features)
         G = model.forward_caption(torch.from_numpy(bow))
-        print("done")
         similarities, indices = rank(F, G)
-        # TODO: show image
         image_names = img_names[indices]
         show_images(image_names, caption=caption)
 

@@ -41,6 +41,7 @@ class FLICKR30K(Dataset):
 
     def __getitem__(self, index):
         # TODO 1 image has 5 captions !
+        # TODO: if self.mode = val, test, not int(index / 5)
         image_features = np.array(self.data_img.iloc[int(index / 5), 1:])
         captions = self.data_bow.getrow(index).toarray().ravel()
         image_name = self.data_img.iloc[int(index / 5), 0]
@@ -51,7 +52,6 @@ class FLICKR30K(Dataset):
         return length
 
     def get_dimensions(self):
-        # TODO if mode = demo change cpt_dim
         img_dim = self.data_img.shape[1] - 1
         cpt_dim = self.data_bow.shape[1]  # TODO
         return img_dim, cpt_dim
