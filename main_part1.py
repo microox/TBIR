@@ -36,8 +36,7 @@ parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='if set, disables CUDA training')
 parser.add_argument('--log-interval', type=int, default=50, metavar='N',
                     help='how many batches to wait before logging training status')
-# if you want to resume, type 'runs/BasicModel/model_best.pth.tar'
-parser.add_argument('--resume', default='runs/BasicModel/model_best.pth.tar', type=str,
+parser.add_argument('--resume', default='runs/Task1_Model1/model_best.pth.tar', type=str,
                     help='path to latest checkpoint (default: none)')
 parser.add_argument('--test', dest='test', action='store_true', default=True,
                     help='To only run inference on test set')
@@ -54,9 +53,9 @@ parser.add_argument('--eta', type=float, default=1.0, metavar='M',
                     help='factor in the loss function')
 
 # own arguments
-parser.add_argument('--demonstrate_in_testing', action='store_true', default=True,
+parser.add_argument('--demonstrate_in_testing', action='store_true', default=False,
                     help='if set, show some images while testing (default: false)')
-parser.add_argument('--vectorizer_path', type=str, default="vectorizer.pickle", metavar='P',
+parser.add_argument('--vectorizer_path', type=str, default="runs/Task1_Model1/vectorizer.pickle", metavar='P',
                     help='specifies where to save (or load) the vectorizer that creates the bow')
 parser.add_argument('--task', type=int, choices=[1, 2], default=1,
                     help='determines which task should be performed (choices: 1,2, default: 1)')
@@ -74,7 +73,6 @@ parser.add_argument('--caption_path', type=str, metavar='P', default='data/resul
                          'do not exist yet')
 
 # for demo
-# TODO
 parser.add_argument('--query', type=str, metavar='Q',
                     default='',
                     help='use this argument to enter an exemplar query')
@@ -118,7 +116,6 @@ def main():
         torch.cuda.set_device(args.gpu)
         torch.cuda.manual_seed(args.seed)
 
-    # TODO: delete
     print("---- using following args ----\n")
     pprint.pprint(vars(args))
     print("----------------------------------------")
@@ -149,7 +146,7 @@ def main():
         val_loader = DataLoader(val_set, batch_size=10000, shuffle=False)
 
         test_set = FLICKR30K(mode='test', vectorizer=bow_vectorizer)
-        test_loader = DataLoader(test_set, batch_size=10000, shuffle=False)  # TODO: make generic batch_size = tesset_size
+        test_loader = DataLoader(test_set, batch_size=10000, shuffle=False) 
         print("created train_loader, test_loader and val_loader!")
     else:
         # obtain only data loader for test sets
@@ -158,7 +155,7 @@ def main():
             "If you want to demonstrate or test a model, you have to specify its path with --resume path_to_model !"
         bow_vectorizer = pickle.load(open(args.vectorizer_path, 'rb'))
         test_set = FLICKR30K(mode='test', vectorizer=bow_vectorizer)
-        test_loader = DataLoader(test_set, batch_size=10000, shuffle=False)  # TODO: make generic batch_size = tesset_size
+        test_loader = DataLoader(test_set, batch_size=10000, shuffle=False)  
         print("created test_loader!")
 
     # create a model for cross-modal retrieval
@@ -178,7 +175,7 @@ def main():
             args.start_epoch = checkpoint['epoch'] + 1
             best_map = checkpoint['best_map']
             model.load_state_dict(checkpoint['state_dict'])
-            model.to(torch.cuda.current_device())
+            #model.to(torch.cuda.current_device())
             print("=> loaded checkpoint '{}' (epoch {})"
                     .format(args.resume, checkpoint['epoch']))
         else:
@@ -383,7 +380,7 @@ def show_images(img_names, caption=None):
         fig.suptitle(caption, fontsize=16)
     for i, ax in enumerate(axes.flat):
         img_name = "%s.jpg" % img_names[i].item()
-        img = mpimg.imread(os.path.join("data", "images", img_name))  # TODO: data path variable
+        img = mpimg.imread(os.path.join("data", "images", img_name))  
         ax.set_title("%d: %s" % ((i + 1), img_name))
         ax.imshow(img)
         plt.setp(ax.get_xticklabels(), visible=False)

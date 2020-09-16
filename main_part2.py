@@ -17,15 +17,16 @@ import matplotlib.image as mpimg
 
 from util import get_train_val_test_split, split_captions, split_imgs
 
-parser = argparse.ArgumentParser(description='Cross-modal Retrieval (Part 1)')
+parser = argparse.ArgumentParser(description='Cross-modal Retrieval (Part 2)')
 parser.add_argument('--name', default='BasicModel', type=str,
                     help='name of experiment')
 parser.add_argument('--gpu', type=int, default=0, metavar='N',
                     help='id of gpu to use')
 parser.add_argument('--batch_size', type=int, default=128, metavar='N',
-                    help='input batch size for training (default: 128); must be at least 10 in order to retrieve map@10 for training!')
+                    help='input batch size for training (default: 128);\n' +
+                         'must be at least 10 in order to retrieve map@10 for training!')
 parser.add_argument('--epochs', type=int, default=15, metavar='N',
-                    help='number of epochs to train (default: 100)')
+                    help='number of epochs to train (default: 15)')
 parser.add_argument('--start_epoch', type=int, default=1, metavar='N',
                     help='number of start epoch (default: 1)')
 parser.add_argument('--lr', type=float, default=5e-5, metavar='LR',
@@ -36,16 +37,14 @@ parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='if set, disables CUDA training')
 parser.add_argument('--log-interval', type=int, default=50, metavar='N',
                     help='how many batches to wait before logging training status')
-# if you want to resume, type 'runs/BasicModel/model_best.pth.tar'
-parser.add_argument('--resume', default='runs/BasicModel/model_best.pth.tar', type=str,
+parser.add_argument('--resume', default='', type=str,
                     help='path to latest checkpoint (default: none)')
-parser.add_argument('--test', dest='test', action='store_true', default=True,
+parser.add_argument('--test', dest='test', action='store_true', default=False,
                     help='To only run inference on test set')
 parser.add_argument('--dim_hidden', type=int, default=512, metavar='N',
                     help='how many hidden dimensions')
-parser.add_argument('--c', type=int, default=64, metavar='N',
+parser.add_argument('--c', type=int, default=32, metavar='N',
                     help='number of dimension for shared feature space')
-# task 1: upper bound for embedding space ~ 500
 parser.add_argument('--margin', type=float, default=0.2, metavar='M',
                     help='margin in the loss function')
 parser.add_argument('--gamma', type=float, default=1.0, metavar='M',
@@ -54,12 +53,10 @@ parser.add_argument('--eta', type=float, default=1.0, metavar='M',
                     help='factor in the loss function')
 
 # own arguments
-parser.add_argument('--demonstrate_in_testing', action='store_true', default=True,
+parser.add_argument('--demonstrate_in_testing', action='store_true', default=False,
                     help='if set, show some images while testing (default: false)')
-parser.add_argument('--vectorizer_path', type=str, default="vectorizer.pickle", metavar='P',
+parser.add_argument('--vectorizer_path', type=str, default="runs/Task2/vectorizer.pickle", metavar='P',
                     help='specifies where to save (or load) the vectorizer that creates the bow')
-parser.add_argument('--task', type=int, choices=[1, 2], default=1,
-                    help='determines which task should be performed (choices: 1,2, default: 1)')
 parser.add_argument('--split_dataset', dest='split_dataset', action='store_true', default=False,
                     help='set this flag if the dataset was not split in train- val- and testset')
 parser.add_argument('--dataset_split_location', type=str, metavar='P', default='data',
@@ -74,7 +71,6 @@ parser.add_argument('--caption_path', type=str, metavar='P', default='data/resul
                          'do not exist yet')
 
 # for demo
-# TODO
 parser.add_argument('--query', type=str, metavar='Q',
                     default='',
                     help='use this argument to enter an exemplar query')
@@ -117,7 +113,6 @@ def main():
         torch.cuda.set_device(args.gpu)
         torch.cuda.manual_seed(args.seed)
 
-    # TODO: delete
     print("---- using following args ----\n")
     pprint.pprint(vars(args))
     print("----------------------------------------")
@@ -149,7 +144,7 @@ def main():
 
         test_set = FLICKR30K(mode='test', vectorizer=bow_vectorizer)
         test_loader = DataLoader(test_set, batch_size=10000,
-                                 shuffle=False)  # TODO: make generic batch_size = tesset_size
+                                 shuffle=False)
         print("created train_loader, test_loader and val_loader!")
     else:
         # obtain only data loader for test sets
@@ -159,12 +154,12 @@ def main():
         bow_vectorizer = pickle.load(open(args.vectorizer_path, 'rb'))
         test_set = FLICKR30K(mode='test', vectorizer=bow_vectorizer)
         test_loader = DataLoader(test_set, batch_size=10000,
-                                 shuffle=False)  # TODO: make generic batch_size = tesset_size
+                                 shuffle=False)
         print("created test_loader!")
 
     # create a model for cross-modal retrieval
     img_dim, txt_dim = test_set.get_dimensions()
-    model = ModelPart1(img_dim, txt_dim, args.dim_hidden, args.c)
+    model = ModelPart2(img_dim, txt_dim, args.dim_hidden, args.c)
 
     if args.cuda:
         model.cuda()
@@ -238,13 +233,18 @@ def train(train_loader, model, optimizer, epoch):
             y = y.cuda()
 
         # pass data samples to model
-        F, G = model(x, y)
+        F, G, B = model(x, y)
 
-        # IMPORTANT: for training, the map score is just calculated for the given batch.
-        # Hence having a small batch size will retrieve a higher MAP, thus score is only meant as sanity check!
-        # In test(), map is calculated for the whole dataset
-        map = mapk2(F, G, k=10)
-        loss = biranking_loss(F, G, args.margin, eps=1e-8)
+        S = torch.zeros(F.shape[0], G.shape[0])
+        S.fill_diagonal_(1)
+        loss = cross_modal_hashing_loss(S, F, G, B, args.gamma, args.eta)
+
+        model.eval()
+        # calculate map@10 for batch
+        _, B1 = model.forward_img(x)
+        _, B2 = model.forward_caption(y)
+        map = mapk4(B1, B2, k=10)
+        model.train()
 
         # record MAP@10 and loss
         num_pairs = len(x)
@@ -279,8 +279,9 @@ def test(test_loader, model):
             y = y.cuda()
 
         # calculate map@10 for full validation / test set
-        F, G = model(x, y)
-        map = mapk2(F, G)
+        _, B1 = model.forward_img(x)
+        _, B2 = model.forward_img(y)
+        map = mapk4(B1, B2)
 
         if args.demonstrate_in_testing:
             # demonstrate performance on TEST_CAPTIONS
@@ -307,8 +308,6 @@ def query(test_loader, model, caption):
             x = x.cuda()
             y = y.cuda()
 
-        F, G = model(x, y)
-
         bow_vectorizer = test_loader.dataset.vectorizer
         demonstrate_fast(caption, model, x[::5], img_names[::5], bow_vectorizer)
 
@@ -328,11 +327,11 @@ def demonstrate_fast(caption, model, image_features, image_names, bow_vectorizer
         bow = bow.cuda()
 
     # forward image features from test set and bow for whose caption to demonstrate
-    F = model.forward_img(image_features)
-    G = model.forward_caption(bow)
+    _, B1 = model.forward_img(image_features)
+    _, B2 = model.forward_caption(bow)
 
     # retrieve ten most similar images according to cosine similarity in embedding space
-    similarities, indices = rank(F, G)
+    similarities, indices = rank(B1, B2)
     image_names = image_names[indices]
     show_images(image_names, caption=caption)
 
@@ -361,9 +360,10 @@ def demonstrate(caption, test_loader, model):
         show_images(image_names, caption=caption)
 
 
-def rank(a, b, k=10):
-    cossim = compute_cosine_similarity_matrix(a, b)
-    values, indices = torch.topk(cossim, k, dim=0)
+def rank(b1, b2, k=10):
+    mult = torch.mm(b1, b2.transpose(-2, -1))
+    sim = (torch.ones_like(mult) * b1.shape[1] + mult) * 0.5
+    values, indices = torch.topk(sim, k, dim=0)
     return values, indices
 
 
@@ -383,7 +383,7 @@ def show_images(img_names, caption=None):
         fig.suptitle(caption, fontsize=16)
     for i, ax in enumerate(axes.flat):
         img_name = "%s.jpg" % img_names[i].item()
-        img = mpimg.imread(os.path.join("data", "images", img_name))  # TODO: data path variable
+        img = mpimg.imread(os.path.join("data", "images", img_name))
         ax.set_title("%d: %s" % ((i + 1), img_name))
         ax.imshow(img)
         plt.setp(ax.get_xticklabels(), visible=False)
