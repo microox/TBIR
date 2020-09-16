@@ -1,10 +1,5 @@
 import torch
 
-def mapk(q, i, k=10):
-    # TODO: Implement this method to rank all instances in i for each query in q and return mean average precision at k.
-    return
-
-
 def mapk2(a, b, eps=1e-8, k=10):
     """
     Given embedding spaces F and G for all samples of validation / test set, calculate map@10
@@ -43,4 +38,26 @@ def sort_tensor_by_indices(a, b):
             c[j] = c[j] * 1/(j+1)
         ap.append(sum(c).item())
     map = sum(ap) / len(ap)
+    return map
+
+
+def mapk4(b1, b2, eps=1e-8, k=10):
+    """
+    Given two binary spaces b1 and b2, rank all captions in the binary space
+    """ 
+    mult = torch.mm(b1, b2.transpose(-2, -1))
+    sim = (torch.ones_like(mult) * b1.shape[1] + mult) * 0.5
+
+    # rank cosine similarity matrix --> rank images for each caption according to rank of cosine similarity matrix
+    values_rank, indices_rank = torch.topk(sim, k)
+
+    # similarity scores of corresponding pairs
+    diag = torch.diag(sim)
+
+    # mask out similarity scores of corresponding pairs
+    mask = torch.diag(torch.ones_like(diag))
+
+    # calculate map@k based on indices_rank and cossim
+    map = sort_tensor_by_indices(mask, indices_rank)
+
     return map

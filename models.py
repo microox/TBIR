@@ -37,7 +37,7 @@ class ModelPart1(nn.Module):
         return G
 
 
-class BasicModel(nn.Module):
+class ModelPart2(nn.Module):
     def __init__(self, img_dim, txt_dim, hidden_dim, c):
         super().__init__()
         # instantiate basic image projection to shared feature space
@@ -63,3 +63,13 @@ class BasicModel(nn.Module):
 
         B = (F + G).sign()
         return F, G, B
+
+    def forward_img(self, x):
+        F = self.img_proj(x.float())
+        B = F.sign()
+        return F, B
+
+    def forward_caption(self, y):
+        G = self.txt_proj(y.float())
+        B = (-1 * G).sign()
+        return G, B

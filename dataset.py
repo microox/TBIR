@@ -9,8 +9,6 @@ import numpy as np
 class FLICKR30K(Dataset):
     """
     implements map-style dataset for FLICKR30K
-
-    see: https://pytorch.org/tutorials/beginner/data_loading_tutorial.html
     """
 
     def __init__(self, mode, datapath='data', vectorizer=None):
@@ -31,17 +29,15 @@ class FLICKR30K(Dataset):
 
         # create BOW from all captions in training set
         print("loading %s..." % csv_file_captions)
-        data_captions = pd.read_csv(os.path.join(datapath, csv_file_captions))  # TODO self.df_all_captions for debugging ?
+        data_captions = pd.read_csv(os.path.join(datapath, csv_file_captions)) 
         corpus = [item for sublist in data_captions.iloc[:, 1:].values.tolist() for item in sublist]
         self.vectorizer = vectorizer
         if mode in ['train']:
-            self.data_bow = self._create_bow(corpus)  # TODO: create BOW outside of data_set
+            self.data_bow = self._create_bow(corpus)  
         else:
             self.data_bow = self._transform_bow(vectorizer, corpus)
 
     def __getitem__(self, index):
-        # TODO 1 image has 5 captions !
-        # TODO: if self.mode = val, test, not int(index / 5)
         image_features = np.array(self.data_img.iloc[int(index / 5), 1:])
         captions = self.data_bow.getrow(index).toarray().ravel()
         image_name = self.data_img.iloc[int(index / 5), 0]
@@ -53,7 +49,7 @@ class FLICKR30K(Dataset):
 
     def get_dimensions(self):
         img_dim = self.data_img.shape[1] - 1
-        cpt_dim = self.data_bow.shape[1]  # TODO
+        cpt_dim = self.data_bow.shape[1]
         return img_dim, cpt_dim
 
     def _transform_bow(self, vectorizer, corpus):
@@ -74,6 +70,6 @@ class FLICKR30K(Dataset):
         """
         print("fitting vectorizer on captions from training set and transforming captions to bow model...")
         assert self.mode in ['train']
-        self.vectorizer = TfidfVectorizer(lowercase=True, ngram_range=(1, 2), max_features=2048,
-                                          min_df=0, max_df=0.33, smooth_idf=True, stop_words='english')
+        self.vectorizer = TfidfVectorizer(lowercase=True, ngram_range=(1, 1), max_features=2048,
+                                          min_df=0, max_df=0.2, smooth_idf=True)
         return self.vectorizer.fit_transform(corpus)

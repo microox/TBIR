@@ -30,7 +30,7 @@ def biranking_loss(a, b, margin, eps=1e-8):
 
 def cross_modal_hashing_loss(S, F, G, B, gamma, eta):
     # enforce cross-modal similarity
-    theta = 0.5 * torch.mm(torch.t(F), G)
+    theta = 0.5 * torch.mm(F, torch.t(G))  # switched torch.t
     term1 = - torch.sum((S.cpu() * theta.cpu() - torch.log(1 + torch.exp(theta.cpu())))).cuda()
 
     # enforce binary codes to preserve cross-modal similarity
