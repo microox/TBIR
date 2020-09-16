@@ -3,7 +3,7 @@
 **Given a text caption, retrieve the most resembling images and order them according to their level of resemblance.**
 
   > **Exemplar Search Caption**: `"Two dogs playing with each other."`
-  > ![Demo](Demo.png "Retrieved images for caption 'Two dogs playing with each other.''")
+  ![Demo](Demo.png "Retrieved images for caption 'Two dogs playing with each other.''")
 
 This project was completed as part of the course Text-based information retrieval at KU Leuven (2020).
 All images stem from the [FLICKR30K dataset](https://forms.illinois.edu/sec/229675).
