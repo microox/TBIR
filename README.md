@@ -1,6 +1,6 @@
 # Text-based information retrieval
 
-Given a text caption, order images according to their described by the caption. 
+*Abstract*: Given a text caption, order images according to their described by the caption. 
 
 #### Example
 `Two guys are playing basketball`
